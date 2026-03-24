@@ -1,6 +1,4 @@
-fastapi
-uvicorn
+fastapi[all]
 pandas
-scikit-learn
 joblib
-pydantic
+scikit-learn
