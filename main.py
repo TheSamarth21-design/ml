@@ -4,7 +4,6 @@ import joblib
 import pandas as pd
 from fastapi.middleware.cors import CORSMiddleware
 import io
-import json
 
 app = FastAPI()
 
@@ -32,35 +31,24 @@ async def predict_from_file(file: UploadFile = File(...)):
     contents = await file.read()
     filename = file.filename.lower()
     
-    try:
-        # SMART ROUTER: Choose parsing method based on file type
-        if filename.endswith('.csv'):
-            df_raw = pd.read_csv(io.BytesIO(contents), header=None, encoding='latin1', on_bad_lines='skip')
-            data_row = df_raw.iloc[0].values.tolist()
-            if isinstance(data_row[0], str): data_row = df_raw.iloc[1].values.tolist()
-            
-        elif filename.endswith(('.xlsx', '.xls')):
-            df_raw = pd.read_excel(io.BytesIO(contents), header=None, engine='openpyxl')
-            data_row = df_raw.iloc[0].values.tolist()
-            if isinstance(data_row[0], str): data_row = df_raw.iloc[1].values.tolist()
-            
-        elif filename.endswith('.json'):
-            parsed_json = json.loads(contents.decode('utf-8'))
-            if isinstance(parsed_json, dict):
-                data_row = list(parsed_json.values())
-            elif isinstance(parsed_json, list):
-                data_row = parsed_json[0] if (len(parsed_json) > 0 and isinstance(parsed_json[0], list)) else parsed_json
-            else:
-                data_row = []
-        else:
-            raise HTTPException(status_code=400, detail="Unsupported file format. Please upload CSV, Excel, or JSON.")
+    # STRICTLY CSV ONLY
+    if not filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Strictly CSV files are supported. Please upload a .csv")
 
-        # Extract exactly 21 sensors safely
+    try:
+        # Read the CSV (with protections against weird Mac characters)
+        df_raw = pd.read_csv(io.BytesIO(contents), header=None, encoding='latin1', on_bad_lines='skip')
+
+        # Extract Row
+        data_row = df_raw.iloc[0].values.tolist()
+        if isinstance(data_row[0], str):
+            data_row = df_raw.iloc[1].values.tolist()
+
+        # Extract 21 sensors
         sensor_data = []
         for i in range(21):
             try:
-                # Handle potential offset if the file has ID columns
-                val = float(data_row[i + 5] if len(data_row) > 25 else data_row[i])
+                val = float(data_row[i + 5])
                 sensor_data.append(val if not pd.isna(val) else BASELINE[i])
             except:
                 sensor_data.append(BASELINE[i])
@@ -73,7 +61,8 @@ async def predict_from_file(file: UploadFile = File(...)):
 
     except Exception as e:
         print(f"❌ ERROR: {str(e)}")
-        raise HTTPException(status_code=400, detail=f"File Processing Error: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"CSV Processing Error: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+    
